@@ -1,15 +1,16 @@
 # encoding: UTF-8
 
+require 'digest/sha1'
 require "msgpack"
 require "nido"
 require "redic"
 require "securerandom"
-require_relative "ohm/command"
+require "set"
+require_relative "sohm/command"
 
-module Ohm
-  LUA_CACHE   = Hash.new { |h, k| h[k] = Hash.new }
-  LUA_SAVE    = File.expand_path("../ohm/lua/save.lua",   __FILE__)
-  LUA_DELETE  = File.expand_path("../ohm/lua/delete.lua", __FILE__)
+module Sohm
+  LUA_SAVE = File.read(File.expand_path("../sohm/lua/save.lua",   __FILE__))
+  LUA_SAVE_DIGEST = Digest::SHA1.hexdigest LUA_SAVE
 
   # All of the known errors in Ohm can be traced back to one of these
   # exceptions.
@@ -32,13 +33,13 @@ module Ohm
   #   Raised when trying to save an object with a `unique` index for
   #   which the value already exists.
   #
-  #   Solution: rescue `Ohm::UniqueIndexViolation` during save, but
+  #   Solution: rescue `Sohm::UniqueIndexViolation` during save, but
   #   also, do some validations even before attempting to save.
   #
   class Error < StandardError; end
   class MissingID < Error; end
   class IndexNotFound < Error; end
-  class UniqueIndexViolation < Error; end
+  class CasViolation < Error; end
 
   # Instead of monkey patching Kernel or trying to be clever, it's
   # best to confine all the helper methods in a Utils module.
@@ -52,14 +53,14 @@ module Ohm
     #
     # Example:
     #
-    #   class Comment < Ohm::Model
+    #   class Comment < Sohm::Model
     #     reference :user, User # NameError undefined constant User.
     #   end
     #
     #   # Instead of relying on some clever `const_missing` hack, we can
     #   # simply use a symbol or a string.
     #
-    #   class Comment < Ohm::Model
+    #   class Comment < Sohm::Model
     #     reference :user, :User
     #     reference :post, "Post"
     #   end
@@ -97,17 +98,35 @@ module Ohm
   #   Ohm.redis.call("SET", "foo", "bar")
   #   Ohm.redis.call("FLUSH")
   #
+  @redis = Redic.new
   def self.redis
-    @redis ||= Redic.new
+    @redis
   end
 
   def self.redis=(redis)
     @redis = redis
   end
 
-  # Wrapper for Ohm.redis.call("FLUSHDB").
-  def self.flush
-    redis.call("FLUSHDB")
+  # If you are using a Redis pool to override @redis above, chances are
+  # you won't need a mutex(since your opertions will run on different
+  # redis instances), so you can use this to override the default mutex
+  # for better performance
+  @mutex = Mutex.new
+  def self.mutex=(mutex)
+    @mutex = mutex
+  end
+
+  def self.mutex
+    @mutex
+  end
+
+  # By default, EVALSHA is used
+  def self.enable_evalsha
+    defined?(@enable_evalsha) ? @enable_evalsha : true
+  end
+
+  def self.enable_evalsha=(enabled)
+    @enable_evalsha = enabled
   end
 
   module Collection
@@ -148,7 +167,9 @@ module Ohm
 
       [].tap do |result|
         data.each_with_index do |atts, idx|
-          result << model.new(Utils.dict(atts).update(:id => ids[idx]))
+          unless atts.empty?
+            result << model.new(Utils.dict(atts).update(:id => ids[idx]))
+          end
         end
       end
     end
@@ -187,10 +208,10 @@ module Ohm
     #
     # Example:
     #
-    #   class Comment < Ohm::Model
+    #   class Comment < Sohm::Model
     #   end
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     list :comments, :Comment
     #   end
     #
@@ -221,34 +242,6 @@ module Ohm
       ids.include?(model.id)
     end
 
-    # Replace all the existing elements of a list with a different
-    # collection of models. This happens atomically in a MULTI-EXEC
-    # block.
-    #
-    # Example:
-    #
-    #   user = User.create
-    #   p1 = Post.create
-    #   user.posts.push(p1)
-    #
-    #   p2, p3 = Post.create, Post.create
-    #   user.posts.replace([p2, p3])
-    #
-    #   user.posts.include?(p1)
-    #   # => false
-    #
-    def replace(models)
-      ids = models.map(&:id)
-
-      model.synchronize do
-        redis.queue("MULTI")
-        redis.queue("DEL", key)
-        ids.each { |id| redis.queue("RPUSH", key, id) }
-        redis.queue("EXEC")
-        redis.commit
-      end
-    end
-
     # Pushes the model to the _end_ of the list using RPUSH.
     def push(model)
       redis.call("RPUSH", key, model.id)
@@ -266,10 +259,10 @@ module Ohm
     #
     # Example:
     #
-    #   class Comment < Ohm::Model
+    #   class Comment < Sohm::Model
     #   end
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     list :comments, :Comment
     #   end
     #
@@ -292,10 +285,10 @@ module Ohm
 
     # Returns an array with all the ID's of the list.
     #
-    #   class Comment < Ohm::Model
+    #   class Comment < Sohm::Model
     #   end
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     list :comments, :Comment
     #   end
     #
@@ -328,7 +321,7 @@ module Ohm
     # Allows you to sort by any attribute in the hash, this doesn't include
     # the +id+. If you want to sort by ID, use #sort.
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -351,7 +344,7 @@ module Ohm
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -421,10 +414,10 @@ module Ohm
 
     # Returns an array with all the ID's of the set.
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #   end
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #     index :name
     #
@@ -462,10 +455,10 @@ module Ohm
     #
     # Example:
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #   end
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     set :posts, :Post
     #   end
     #
@@ -594,34 +587,6 @@ module Ohm
     def delete(model)
       redis.call("SREM", key, model.id)
     end
-
-    # Replace all the existing elements of a set with a different
-    # collection of models. This happens atomically in a MULTI-EXEC
-    # block.
-    #
-    # Example:
-    #
-    #   user = User.create
-    #   p1 = Post.create
-    #   user.posts.add(p1)
-    #
-    #   p2, p3 = Post.create, Post.create
-    #   user.posts.replace([p2, p3])
-    #
-    #   user.posts.include?(p1)
-    #   # => false
-    #
-    def replace(models)
-      ids = models.map(&:id)
-
-      model.synchronize do
-        redis.queue("MULTI")
-        redis.queue("DEL", key)
-        ids.each { |id| redis.queue("SADD", key, id) }
-        redis.queue("EXEC")
-        redis.commit
-      end
-    end
   end
 
   # Anytime you filter a set with more than one requirement, you
@@ -631,13 +596,13 @@ module Ohm
   #
   # Example:
   #
-  #   User.all.kind_of?(Ohm::Set)
+  #   User.all.kind_of?(Sohm::Set)
   #   # => true
   #
-  #   User.find(:name => "John").kind_of?(Ohm::Set)
+  #   User.find(:name => "John").kind_of?(Sohm::Set)
   #   # => true
   #
-  #   User.find(:name => "John", :age => 30).kind_of?(Ohm::MultiSet)
+  #   User.find(:name => "John", :age => 30).kind_of?(Sohm::MultiSet)
   #   # => true
   #
   class MultiSet < BasicSet
@@ -752,7 +717,7 @@ module Ohm
   #
   # Example:
   #
-  #   class User < Ohm::Model
+  #   class User < Sohm::Model
   #     attribute :name
   #     index :name
   #
@@ -801,22 +766,18 @@ module Ohm
     end
 
     def self.redis
-      defined?(@redis) ? @redis : Ohm.redis
-    end
-
-    def self.mutex
-      @@mutex ||= Mutex.new
+      defined?(@redis) ? @redis : Sohm.redis
     end
 
     def self.synchronize(&block)
-      mutex.synchronize(&block)
+      Sohm.mutex.synchronize(&block)
     end
 
     # Returns the namespace for all the keys generated using this model.
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #   end
     #
     #   User.key == "User"
@@ -830,7 +791,7 @@ module Ohm
     #   http://github.com/soveran/nido
     #
     def self.key
-      @key ||= Nido.new(self.name)
+      Nido.new(self.name)
     end
 
     # Retrieve a record by ID.
@@ -855,7 +816,7 @@ module Ohm
     # Note: The use of this should be a last resort for your actual
     # application runtime, or for simply debugging in your console. If
     # you care about performance, you should pipeline your reads. For
-    # more information checkout the implementation of Ohm::List#fetch.
+    # more information checkout the implementation of Sohm::List#fetch.
     #
     def self.to_proc
       lambda { |id| self[id] }
@@ -863,33 +824,14 @@ module Ohm
 
     # Check if the ID exists within <Model>:all.
     def self.exists?(id)
-      redis.call("SISMEMBER", key[:all], id) == 1
-    end
-
-    # Find values in `unique` indices.
-    #
-    # Example:
-    #
-    #   class User < Ohm::Model
-    #     unique :email
-    #   end
-    #
-    #   u = User.create(:email => "foo@bar.com")
-    #   u == User.with(:email, "foo@bar.com")
-    #   # => true
-    #
-    def self.with(att, val)
-      raise IndexNotFound unless uniques.include?(att)
-
-      id = redis.call("HGET", key[:uniques][att], val)
-      new(:id => id).load! if id
+      redis.call("EXISTS", key[id]) == 1
     end
 
     # Find values in indexed fields.
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :email
     #
     #     attribute :name
@@ -927,9 +869,9 @@ module Ohm
       keys = filters(dict)
 
       if keys.size == 1
-        Ohm::Set.new(keys.first, key, self)
+        Sohm::Set.new(keys.first, key, self)
       else
-        Ohm::MultiSet.new(key, self, Command.new(:sinterstore, *keys))
+        Sohm::MultiSet.new(key, self, Command.new(:sinterstore, *keys))
       end
     end
 
@@ -949,21 +891,11 @@ module Ohm
       indices << attribute unless indices.include?(attribute)
     end
 
-    # Create a unique index for any method on your model. Once you add
-    # a unique index, you can use it in `with` statements.
-    #
-    # Note: if there is a conflict while saving, an
-    # `Ohm::UniqueIndexViolation` violation is raised.
-    #
-    def self.unique(attribute)
-      uniques << attribute unless uniques.include?(attribute)
-    end
-
-    # Declare an Ohm::Set with the given name.
+    # Declare an Sohm::Set with the given name.
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     set :posts, :Post
     #   end
     #
@@ -972,7 +904,7 @@ module Ohm
     #   # => true
     #
     # Note: You can't use the set until you save the model. If you try
-    # to do it, you'll receive an Ohm::MissingID error.
+    # to do it, you'll receive an Sohm::MissingID error.
     #
     def self.set(name, model)
       track(name)
@@ -980,18 +912,18 @@ module Ohm
       define_method name do
         model = Utils.const(self.class, model)
 
-        Ohm::MutableSet.new(key[name], model.key, model)
+        Sohm::MutableSet.new(key[name], model.key, model)
       end
     end
 
-    # Declare an Ohm::List with the given name.
+    # Declare an Sohm::List with the given name.
     #
     # Example:
     #
-    #   class Comment < Ohm::Model
+    #   class Comment < Sohm::Model
     #   end
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     list :comments, :Comment
     #   end
     #
@@ -1002,7 +934,7 @@ module Ohm
     #   # => true
     #
     # Note: You can't use the list until you save the model. If you try
-    # to do it, you'll receive an Ohm::MissingID error.
+    # to do it, you'll receive an Sohm::MissingID error.
     #
     def self.list(name, model)
       track(name)
@@ -1010,24 +942,24 @@ module Ohm
       define_method name do
         model = Utils.const(self.class, model)
 
-        Ohm::List.new(key[name], model.key, model)
+        Sohm::List.new(key[name], model.key, model)
       end
     end
 
     # A macro for defining a method which basically does a find.
     #
     # Example:
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     reference :user, :User
     #   end
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     collection :posts, :Post
     #   end
     #
     #   # is the same as
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     def posts
     #       Post.find(:user_id => self.id)
     #     end
@@ -1045,13 +977,13 @@ module Ohm
     #
     # Example:
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     reference :user, :User
     #   end
     #
     #   # It's the same as:
     #
-    #   class Post < Ohm::Model
+    #   class Post < Sohm::Model
     #     attribute :user_id
     #     index :user_id
     #
@@ -1083,20 +1015,16 @@ module Ohm
       end
 
       define_method(writer) do |value|
-        @_memo.delete(name)
         @attributes[reader] = value
       end
 
       define_method(:"#{name}=") do |value|
-        @_memo.delete(name)
         send(writer, value ? value.id : nil)
       end
 
       define_method(name) do
-        @_memo[name] ||= begin
-          model = Utils.const(self.class, model)
-          model[send(reader)]
-        end
+        model = Utils.const(self.class, model)
+        model[send(reader)]
       end
     end
 
@@ -1104,7 +1032,7 @@ module Ohm
     # persisted attributes. All attributes are stored on the Redis
     # hash.
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -1119,7 +1047,7 @@ module Ohm
     # A +lambda+ can be passed as a second parameter to add
     # typecasting support to the attribute.
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :age, ->(x) { x.to_i }
     #   end
     #
@@ -1135,6 +1063,10 @@ module Ohm
     # to see more examples about the typecasting feature.
     #
     def self.attribute(name, cast = nil)
+      if serial_attributes.include?(name)
+        raise ArgumentError,
+              "#{name} is already used as a serial attribute."
+      end
       attributes << name unless attributes.include?(name)
 
       if cast
@@ -1152,6 +1084,30 @@ module Ohm
       end
     end
 
+    # Attributes that require CAS property
+    def self.serial_attribute(name, cast = nil)
+      if attributes.include?(name)
+        raise ArgumentError,
+              "#{name} is already used as a normal attribute."
+      end
+      serial_attributes << name unless serial_attributes.include?(name)
+
+      if cast
+        define_method(name) do
+          cast[@serial_attributes[name]]
+        end
+      else
+        define_method(name) do
+          @serial_attributes[name]
+        end
+      end
+
+      define_method(:"#{name}=") do |value|
+        @serial_attributes_changed = true
+        @serial_attributes[name] = value
+      end
+    end
+
     # Declare a counter. All the counters are internally stored in
     # a different Redis hash, independent from the one that stores
     # the model attributes. Counters are updated with the `incr` and
@@ -1160,7 +1116,7 @@ module Ohm
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     counter :points
     #   end
     #
@@ -1171,7 +1127,7 @@ module Ohm
     #   # => 1
     #
     # Note: You can't use counters until you save the model. If you
-    # try to do it, you'll receive an Ohm::MissingID error.
+    # try to do it, you'll receive an Sohm::MissingID error.
     #
     def self.counter(name)
       counters << name unless counters.include?(name)
@@ -1188,18 +1144,14 @@ module Ohm
       tracked << name unless tracked.include?(name)
     end
 
-    # An Ohm::Set wrapper for Model.key[:all].
-    def self.all
-      Set.new(key[:all], key, self)
-    end
-
-    # Syntactic sugar for Model.new(atts).save
+    # Create a new model, notice that under Sohm's circumstances,
+    # this is no longer a syntactic sugar for Model.new(atts).save
     def self.create(atts = {})
-      new(atts).save
+      new(atts).save(create: true)
     end
 
     # Returns the namespace for the keys generated using this model.
-    # Check `Ohm::Model.key` documentation for more details.
+    # Check `Sohm::Model.key` documentation for more details.
     def key
       model.key[id]
     end
@@ -1212,7 +1164,9 @@ module Ohm
     #
     def initialize(atts = {})
       @attributes = {}
+      @serial_attributes = {}
       @_memo = {}
+      @serial_attributes_changed = false
       update_attributes(atts)
     end
 
@@ -1221,7 +1175,7 @@ module Ohm
     #
     # Example:
     #
-    #   class User < Ohm::Model; end
+    #   class User < Sohm::Model; end
     #
     #   u = User.create
     #   u.id
@@ -1234,6 +1188,9 @@ module Ohm
       raise MissingID if not defined?(@id)
       @id
     end
+
+    attr_writer :id
+    attr_accessor :cas_token
 
     # Check for equality by doing the following assertions:
     #
@@ -1249,7 +1206,8 @@ module Ohm
     # Preload all the attributes of this model from Redis. Used
     # internally by `Model::[]`.
     def load!
-      update_attributes(Utils.dict(redis.call("HGETALL", key))) unless new?
+      update_attributes(Utils.dict(redis.call("HGETALL", key))) if id
+      @serial_attributes_changed = false
       return self
     end
 
@@ -1293,7 +1251,7 @@ module Ohm
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -1305,7 +1263,7 @@ module Ohm
     #   u.new?
     #   # => false
     def new?
-      !defined?(@id)
+      !model.exists?(id)
     end
 
     # Increment a counter atomically. Internally uses HINCRBY.
@@ -1341,7 +1299,7 @@ module Ohm
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -1353,13 +1311,17 @@ module Ohm
       @attributes
     end
 
+    def serial_attributes
+      @serial_attributes
+    end
+
     # Export the ID of the model. The approach of Ohm is to
     # whitelist public attributes, as opposed to exporting each
     # (possibly sensitive) attribute.
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -1369,7 +1331,7 @@ module Ohm
     #
     # In order to add additional attributes, you can override `to_hash`:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #
     #     def to_hash
@@ -1394,7 +1356,7 @@ module Ohm
     #
     # Example:
     #
-    #   class User < Ohm::Model
+    #   class User < Sohm::Model
     #     attribute :name
     #   end
     #
@@ -1403,36 +1365,26 @@ module Ohm
     #   # => true
     #
     def save
-      indices = {}
-      model.indices.each { |field| indices[field] = Array(send(field)) }
+      if serial_attributes_changed
+        response = script(LUA_SAVE, 1, key,
+          serial_attributes.to_msgpack,
+          cas_token)
 
-      uniques = {}
-      model.uniques.each { |field| uniques[field] = send(field) }
-
-      features = {
-        "name" => model.name
-      }
-
-      if defined?(@id)
-        features["id"] = @id
-      end
-
-      response = script(LUA_SAVE, 0,
-        features.to_msgpack,
-        _sanitized_attributes.to_msgpack,
-        indices.to_msgpack,
-        uniques.to_msgpack
-      )
-
-      if response.is_a?(RuntimeError)
-        if response.message =~ /(UniqueIndexViolation: (\w+))/
-          raise UniqueIndexViolation, $1
-        else
-          raise response
+        if response.is_a?(RuntimeError)
+          if response.message =~ /cas_error/
+            raise CasViolation
+          else
+            raise response
+          end
         end
+
+        @cas_token = response
+        @serial_attributes_changed = false
       end
 
-      @id = response
+      redis.call("HSET", key, "_ndata", attributes.to_msgpack)
+
+      refresh_indices
 
       return self
     end
@@ -1446,17 +1398,19 @@ module Ohm
     # If the model has uniques or indices, they're also cleaned up.
     #
     def delete
-      uniques = {}
-      model.uniques.each { |field| uniques[field] = send(field) }
+      memo_key = key["_indices"]
+      commands = [["DEL", key], ["DEL", memo_key]]
+      index_list = redis.call("SMEMBERS", memo_key)
+      index_list.each do |index_key|
+        commands << ["SREM", index_key, id]
+      end
 
-      script(LUA_DELETE, 0,
-        { "name" => model.name,
-          "id" => id,
-          "key" => key
-        }.to_msgpack,
-        uniques.to_msgpack,
-        model.tracked.to_msgpack
-      )
+      model.synchronize do
+        commands.each do |command|
+          redis.queue(*command)
+        end
+        redis.commit
+      end
 
       return self
     end
@@ -1464,18 +1418,18 @@ module Ohm
     # Run lua scripts and cache the sha in order to improve
     # successive calls.
     def script(file, *args)
-      cache = LUA_CACHE[redis.url]
+      response = nil
 
-      if cache.key?(file)
-        sha = cache[file]
-      else
-        src = File.read(file)
-        sha = redis.call("SCRIPT", "LOAD", src)
-
-        cache[file] = sha
+      if Sohm.enable_evalsha
+        response = redis.call("EVALSHA", LUA_SAVE_DIGEST, *args)
+        if response.is_a?(RuntimeError)
+          if response.message =~ /NOSCRIPT/
+            response = nil
+          end
+        end
       end
 
-      redis.call("EVALSHA", sha, *args)
+      response ? response : redis.call("EVAL", LUA_SAVE, *args)
     end
 
     # Update the model attributes and call save.
@@ -1497,10 +1451,12 @@ module Ohm
 
     # Write the dictionary of key-value pairs to the model.
     def update_attributes(atts)
-      atts.each { |att, val| send(:"#{att}=", val) }
+      unpack_attrs(atts).each { |att, val| send(:"#{att}=", val) }
     end
 
   protected
+    attr_reader :serial_attributes_changed
+
     def self.to_reference
       name.to_s.
         match(/^(?:.*::)*(.*)$/)[1].
@@ -1508,24 +1464,33 @@ module Ohm
         downcase.to_sym
     end
 
-    def self.indices
-      @indices ||= []
+    # Workaround to JRuby's concurrency problem
+    def self.inherited(subclass)
+      subclass.instance_variable_set(:@indices, [])
+      subclass.instance_variable_set(:@counters, [])
+      subclass.instance_variable_set(:@tracked, [])
+      subclass.instance_variable_set(:@attributes, [])
+      subclass.instance_variable_set(:@serial_attributes, [])
     end
 
-    def self.uniques
-      @uniques ||= []
+    def self.indices
+      @indices
     end
 
     def self.counters
-      @counters ||= []
+      @counters
     end
 
     def self.tracked
-      @tracked ||= []
+      @tracked
     end
 
     def self.attributes
-      @attributes ||= []
+      @attributes
+    end
+
+    def self.serial_attributes
+      @serial_attributes
     end
 
     def self.filters(dict)
@@ -1542,13 +1507,77 @@ module Ohm
       raise IndexNotFound unless indices.include?(att)
 
       if val.kind_of?(Enumerable)
-        val.map { |v| key[:indices][att][v] }
+        val.map { |v| key[:_indices][att][v] }
       else
-        [key[:indices][att][val]]
+        [key[:_indices][att][val]]
       end
     end
 
-    attr_writer :id
+    def fetch_indices
+      indices = {}
+      model.indices.each { |field| indices[field] = Array(send(field)) }
+      indices
+    end
+
+    # This is performed asynchronously
+    def refresh_indices
+      memo_key = key["_indices"]
+      # Add new indices first
+      commands = fetch_indices.each_pair.map do |field, vals|
+        vals.map do |val|
+          index_key = model.key["_indices"][field][val]
+          [["SADD", memo_key, index_key], ["SADD", index_key, id]]
+        end
+      end.flatten(2)
+
+      # TODO: Think about switching to a redis pool later
+      model.synchronize do
+        commands.each do |command|
+          redis.queue(*command)
+        end
+        redis.commit
+      end
+
+      # Remove old indices
+      # TODO: we can do this asynchronously, or maybe in a background queue
+      index_set = ::Set.new(redis.call("SMEMBERS", memo_key))
+      valid_list = model[id].send(:fetch_indices).each_pair.map do |field, vals|
+        vals.map do |val|
+          model.key["_indices"][field][val]
+        end
+      end.flatten(1)
+      valid_set = ::Set.new(valid_list)
+      diff_set = index_set - valid_set
+      diff_list = diff_set.to_a
+      commands = diff_list.map do |key|
+        ["SREM", key, id]
+      end + [["SREM", memo_key] + diff_list]
+
+      model.synchronize do
+        commands.each do |command|
+          redis.queue(*command)
+        end
+        redis.commit
+      end
+    end
+
+    # Unpack hash returned by redis, which contains _cas, _sdata, _ndata
+    # columns
+    def unpack_attrs(attrs)
+      if ndata = attrs.delete("_ndata")
+        attrs.merge!(MessagePack.unpack(ndata))
+      end
+
+      if sdata = attrs.delete("_sdata")
+        attrs.merge!(MessagePack.unpack(sdata))
+      end
+
+      if cas_token = attrs.delete("_cas")
+        attrs["cas_token"] = cas_token
+      end
+
+      attrs
+    end
 
     def model
       self.class
@@ -1556,20 +1585,6 @@ module Ohm
 
     def redis
       model.redis
-    end
-
-    def _sanitized_attributes
-      result = []
-
-      model.attributes.each do |field|
-        val = send(field)
-
-        if val
-          result.push(field, val.to_s)
-        end
-      end
-
-      return result
     end
   end
 end

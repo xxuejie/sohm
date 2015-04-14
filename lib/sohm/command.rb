@@ -1,4 +1,4 @@
-module Ohm
+module Sohm
   class Command
     def self.[](operation, head, *tail)
       return head if tail.empty?

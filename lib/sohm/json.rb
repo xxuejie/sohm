@@ -1,6 +1,6 @@
 require "json"
 
-module Ohm
+module Sohm
   class Model
     # Export a JSON representation of the model by encoding `to_hash`.
     def to_json(*args)
