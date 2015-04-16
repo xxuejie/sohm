@@ -404,6 +404,7 @@ module Sohm
     def first(options = {})
       opts = options.dup
       opts.merge!(:limit => [0, 1])
+      opts.merge!(:order => "ALPHA")
 
       if opts[:by]
         sort_by(opts.delete(:by), opts).first
@@ -1094,10 +1095,15 @@ module Sohm
 
       if cast
         define_method(name) do
+          # NOTE: This is a temporary solution, since we might use
+          # composite objects (such as arrays), which won't always
+          # do a reset
+          @serial_attributes_changed = true
           cast[@serial_attributes[name]]
         end
       else
         define_method(name) do
+          @serial_attributes_changed = true
           @serial_attributes[name]
         end
       end
@@ -1147,7 +1153,7 @@ module Sohm
     # Create a new model, notice that under Sohm's circumstances,
     # this is no longer a syntactic sugar for Model.new(atts).save
     def self.create(atts = {})
-      new(atts).save(create: true)
+      new(atts).save
     end
 
     # Returns the namespace for the keys generated using this model.
@@ -1367,7 +1373,7 @@ module Sohm
     def save
       if serial_attributes_changed
         response = script(LUA_SAVE, 1, key,
-          serial_attributes.to_msgpack,
+          sanitize_attributes(serial_attributes).to_msgpack,
           cas_token)
 
         if response.is_a?(RuntimeError)
@@ -1382,7 +1388,8 @@ module Sohm
         @serial_attributes_changed = false
       end
 
-      redis.call("HSET", key, "_ndata", attributes.to_msgpack)
+      redis.call("HSET", key, "_ndata",
+                 sanitize_attributes(attributes).to_msgpack)
 
       refresh_indices
 
@@ -1577,6 +1584,10 @@ module Sohm
       end
 
       attrs
+    end
+
+    def sanitize_attributes(attributes)
+      attributes.select { |key, val| val }
     end
 
     def model
