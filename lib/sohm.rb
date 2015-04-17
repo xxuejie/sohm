@@ -76,18 +76,6 @@ module Sohm
     def self.dict(arr)
       Hash[*arr]
     end
-
-    def self.sort(redis, key, options)
-      args = []
-
-      args.concat(["BY", options[:by]]) if options[:by]
-      args.concat(["GET", options[:get]]) if options[:get]
-      args.concat(["LIMIT"] + options[:limit]) if options[:limit]
-      args.concat(options[:order].split(" ")) if options[:order]
-      args.concat(["STORE", options[:store]]) if options[:store]
-
-      redis.call("SORT", key, *args)
-    end
   end
 
   # Use this if you want to do quick ad hoc redis commands against the
@@ -318,57 +306,6 @@ module Sohm
   class BasicSet
     include Collection
 
-    # Allows you to sort by any attribute in the hash, this doesn't include
-    # the +id+. If you want to sort by ID, use #sort.
-    #
-    #   class User < Sohm::Model
-    #     attribute :name
-    #   end
-    #
-    #   User.all.sort_by(:name, :order => "ALPHA")
-    #   User.all.sort_by(:name, :order => "ALPHA DESC")
-    #   User.all.sort_by(:name, :order => "ALPHA DESC", :limit => [0, 10])
-    #
-    # Note: This is slower compared to just doing `sort`, specifically
-    # because Redis has to read each individual hash in order to sort
-    # them.
-    #
-    def sort_by(att, options = {})
-      sort(options.merge(:by => to_key(att)))
-    end
-
-    # Allows you to sort your models using their IDs. This is much
-    # faster than `sort_by`. If you simply want to get records in
-    # ascending or descending order, then this is the best method to
-    # do that.
-    #
-    # Example:
-    #
-    #   class User < Sohm::Model
-    #     attribute :name
-    #   end
-    #
-    #   User.create(:name => "John")
-    #   User.create(:name => "Jane")
-    #
-    #   User.all.sort.map(&:id) == ["1", "2"]
-    #   # => true
-    #
-    #   User.all.sort(:order => "ASC").map(&:id) == ["1", "2"]
-    #   # => true
-    #
-    #   User.all.sort(:order => "DESC").map(&:id) == ["2", "1"]
-    #   # => true
-    #
-    def sort(options = {})
-      if options.has_key?(:get)
-        options[:get] = to_key(options[:get])
-        return execute { |key| Utils.sort(redis, key, options) }
-      end
-
-      fetch(execute { |key| Utils.sort(redis, key, options) })
-    end
-
     # Check if a model is included in this set.
     #
     # Example:
@@ -390,27 +327,8 @@ module Sohm
       execute { |key| redis.call("SCARD", key) }
     end
 
-    # Syntactic sugar for `sort_by` or `sort` when you only need the
-    # first element.
-    #
-    # Example:
-    #
-    #   User.all.first ==
-    #     User.all.sort(:limit => [0, 1]).first
-    #
-    #   User.all.first(:by => :name, "ALPHA") ==
-    #     User.all.sort_by(:name, :order => "ALPHA", :limit => [0, 1]).first
-    #
-    def first(options = {})
-      opts = options.dup
-      opts.merge!(:limit => [0, 1])
-      opts.merge!(:order => "ALPHA")
-
-      if opts[:by]
-        sort_by(opts.delete(:by), opts).first
-      else
-        sort(opts).first
-      end
+    def first
+      fetch([ids.first]).first
     end
 
     # Returns an array with all the ID's of the set.
@@ -472,15 +390,6 @@ module Sohm
     #
     def exists?(id)
       execute { |key| redis.call("SISMEMBER", key, id) == 1 }
-    end
-
-  private
-    def to_key(att)
-      if model.counters.include?(att)
-        namespace["*:counters->%s" % att]
-      else
-        namespace["*->%s" % att]
-      end
     end
   end
 
