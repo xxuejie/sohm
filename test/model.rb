@@ -1,18 +1,26 @@
+# coding: utf-8
 require_relative "helper"
 require "ostruct"
 
-class Post < Ohm::Model
+class Post < Sohm::Model
+  include Sohm::AutoId
+
   attribute :body
   attribute :published
   set :related, :Post
 end
 
-class User < Ohm::Model
+class User < Sohm::Model
+  include Sohm::AutoId
+
   attribute :email
   set :posts, :Post
 end
 
-class Person < Ohm::Model
+class Person < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :name
   counter :logins
   index :initial
@@ -22,7 +30,10 @@ class Person < Ohm::Model
   end
 end
 
-class Event < Ohm::Model
+class Event < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :name
   counter :votes
   set :attendees, :Person
@@ -36,16 +47,22 @@ class Event < Ohm::Model
 end
 
 module SomeNamespace
-  class Foo < Ohm::Model
-    attribute :name
+  class Foo < Sohm::Model
+    include Sohm::AutoId
+
+  attribute :name
   end
 
-  class Bar < Ohm::Model
+  class Bar < Sohm::Model
+    include Sohm::AutoId
+
     reference :foo, 'SomeNamespace::Foo'
   end
 end
 
-class Meetup < Ohm::Model
+class Meetup < Sohm::Model
+  include Sohm::AutoId
+
   attribute :name
   attribute :location
 end
@@ -60,12 +77,13 @@ test "booleans" do
 
   post = Post[post.id]
 
-  assert_equal "true", post.body
+  assert_equal true, post.body
   assert_equal nil, post.published
 end
 
 test "empty model is ok" do
-  class Foo < Ohm::Model
+  class Foo < Sohm::Model
+    include Sohm::AutoId
   end
 
   Foo.create
@@ -79,29 +97,6 @@ test "counters are cleaned up during deletion" do
 
   e.delete
   assert_equal 0, Event.redis.call("EXISTS", e.key[:counters])
-end
-
-test "get" do
-  m = Meetup.create(:name => "Foo")
-  m.name = "Bar"
-
-  assert_equal "Foo", m.get(:name)
-  assert_equal "Foo", m.name
-end
-
-test "set" do
-  m = Meetup.create(:name => "Foo")
-
-  m.set :name, "Bar"
-  assert_equal "Bar", m.name
-
-  m = Meetup[m.id]
-  assert_equal "Bar", m.name
-
-  # Deletes when value is nil.
-  m.set :name, nil
-  m = Meetup[m.id]
-  assert_equal 0, Meetup.redis.call("HEXISTS", m.key, :name)
 end
 
 test "assign attributes from the hash" do
@@ -136,7 +131,9 @@ test "delete the attribute if set to nil" do
 end
 
 test "not raise if an attribute is redefined" do
-  class RedefinedModel < Ohm::Model
+  class RedefinedModel < Sohm::Model
+    include Sohm::AutoId
+
     attribute :name
 
     silence_warnings do
@@ -146,7 +143,9 @@ test "not raise if an attribute is redefined" do
 end
 
 test "not raise if a counter is redefined" do
-  class RedefinedModel < Ohm::Model
+  class RedefinedModel < Sohm::Model
+    include Sohm::AutoId
+
     counter :age
 
     silence_warnings do
@@ -156,7 +155,9 @@ test "not raise if a counter is redefined" do
 end
 
 test "not raise if a set is redefined" do
-  class RedefinedModel < Ohm::Model
+  class RedefinedModel < Sohm::Model
+    include Sohm::AutoId
+
     set :friends, lambda { }
 
     silence_warnings do
@@ -166,7 +167,9 @@ test "not raise if a set is redefined" do
 end
 
 test "not raise if a collection is redefined" do
-  class RedefinedModel < Ohm::Model
+  class RedefinedModel < Sohm::Model
+    include Sohm::AutoId
+
     set :toys, lambda { }
 
     silence_warnings do
@@ -176,7 +179,9 @@ test "not raise if a collection is redefined" do
 end
 
 test "not raise if a index is redefined" do
-  class RedefinedModel < Ohm::Model
+  class RedefinedModel < Sohm::Model
+    include Sohm::AutoId
+
     attribute :color
     index :color
     index :color
@@ -190,17 +195,9 @@ test "allow arbitrary IDs" do
   assert Event["abc123"].name == "Concert"
 end
 
-test "forbid assignment of IDs on a new object" do
-  event = Event.new(:name => "Concert")
-
-  assert_raise(NoMethodError) do
-    event.id = "abc123"
-  end
-end
-
 setup do
-  Ohm.redis.call("SADD", "Event:all", 1)
-  Ohm.redis.call("HSET", "Event:1", "name", "Concert")
+  Sohm.redis.call("SADD", "Event:all", 1)
+  Sohm.redis.call("HSET", "Event:1", "name", "Concert")
 end
 
 test "return an instance of Event" do
@@ -210,8 +207,8 @@ test "return an instance of Event" do
 end
 
 setup do
-  Ohm.redis.call("SADD", "User:all", 1)
-  Ohm.redis.call("HSET", "User:1", "email", "albert@example.com")
+  Sohm.redis.call("SADD", "User:all", 1)
+  Sohm.redis.call("HSET", "User:1", "email", "albert@example.com")
 end
 
 test "return an instance of User" do
@@ -225,8 +222,8 @@ test "allow to map key to models" do
 end
 
 setup do
-  Ohm.redis.call("SADD", "User:all", 1)
-  Ohm.redis.call("SET", "User:1:email", "albert@example.com")
+  Sohm.redis.call("INCR", "User:_id")
+  Sohm.redis.call("HSET", "User:1", "_ndata", "\x81\xa5email\xb2albert@example.com")
 
   @user = User[1]
 end
@@ -294,7 +291,10 @@ end
 
 # Delete
 test "delete an existing model" do
-  class ModelToBeDeleted < Ohm::Model
+  class ModelToBeDeleted < Sohm::Model
+    include Sohm::AutoId
+    include Sohm::IndexAll
+
     attribute :name
     set :foos, :Post
     set :bars, :Post
@@ -309,10 +309,10 @@ test "delete an existing model" do
 
   @model.delete
 
-  assert Ohm.redis.call("GET", ModelToBeDeleted.key[id]).nil?
-  assert Ohm.redis.call("GET", ModelToBeDeleted.key[id][:name]).nil?
-  assert Array.new == Ohm.redis.call("SMEMBERS", ModelToBeDeleted.key[id][:foos])
-  assert Array.new == Ohm.redis.call("LRANGE", ModelToBeDeleted.key[id][:bars], 0, -1)
+  assert Sohm.redis.call("GET", ModelToBeDeleted.key[id]).nil?
+  assert Sohm.redis.call("GET", ModelToBeDeleted.key[id][:name]).nil?
+  assert Array.new == Sohm.redis.call("SMEMBERS", ModelToBeDeleted.key[id][:foos])
+  assert Array.new == Sohm.redis.call("LRANGE", ModelToBeDeleted.key[id][:bars], 0, -1)
 
   assert ModelToBeDeleted.all.empty?
 end
@@ -321,33 +321,35 @@ setup do
 end
 
 test "no leftover keys" do
-  class ::Foo < Ohm::Model
+  class ::Foo < Sohm::Model
+    include Sohm::AutoId
+
     attribute :name
     index :name
     track :notes
   end
 
-  assert_equal [], Ohm.redis.call("KEYS", "*")
+  assert_equal [], Sohm.redis.call("KEYS", "*")
 
   Foo.create(:name => "Bar")
-  expected = %w[Foo:1:_indices Foo:1 Foo:all Foo:id Foo:indices:name:Bar]
+  expected = %w[Foo:1:_indices Foo:1 Foo:_id Foo:_indices:name:Bar]
 
-  assert_equal expected.sort, Ohm.redis.call("KEYS", "*").sort
+  assert_equal expected.sort, Sohm.redis.call("KEYS", "*").sort
 
   Foo[1].delete
-  assert ["Foo:id"] == Ohm.redis.call("KEYS", "*")
+  assert ["Foo:_id"] == Sohm.redis.call("KEYS", "*")
 
   Foo.create(:name => "Baz")
 
-  Ohm.redis.call("SET", Foo[2].key[:notes], "something")
+  Sohm.redis.call("SET", Foo[2].key[:notes], "something")
 
-  expected = %w[Foo:2:_indices Foo:2 Foo:all Foo:id
-    Foo:indices:name:Baz Foo:2:notes]
+  expected = %w[Foo:2:_indices Foo:2 Foo:_id
+    Foo:_indices:name:Baz Foo:2:notes]
 
-  assert_equal expected.sort, Ohm.redis.call("KEYS", "*").sort
+  assert_equal expected.sort, Sohm.redis.call("KEYS", "*").sort
 
   Foo[2].delete
-  assert ["Foo:id"] == Ohm.redis.call("KEYS", "*")
+  assert ["Foo:_id"] == Sohm.redis.call("KEYS", "*")
 end
 
 # Listing
@@ -373,55 +375,6 @@ test "fetch ids" do
   assert_equal [event1, event2], Event.fetch([event1.id, event2.id])
 end
 
-# Sorting
-test "sort all" do
-  Person.create :name => "D"
-  Person.create :name => "C"
-  Person.create :name => "B"
-  Person.create :name => "A"
-
-  names = Person.all.sort_by(:name, :order => "ALPHA").map { |p| p.name }
-  assert %w[A B C D] == names
-end
-
-test "return an empty array if there are no elements to sort" do
-  assert [] == Person.all.sort_by(:name)
-end
-
-test "return the first element sorted by id when using first" do
-  Person.create :name => "A"
-  Person.create :name => "B"
-  assert "A" == Person.all.first.name
-end
-
-test "return the first element sorted by name if first receives a sorting option" do
-  Person.create :name => "B"
-  Person.create :name => "A"
-  assert "A" == Person.all.first(:by => :name, :order => "ALPHA").name
-end
-
-test "return attribute values when the get parameter is specified" do
-  Person.create :name => "B"
-  Person.create :name => "A"
-
-  res = Person.all.sort_by(:name, :get => :name, :order => "ALPHA")
-
-  assert_equal ["A", "B"], res
-end
-
-test "work on lists" do
-  post = Post.create :body => "Hello world!"
-
-  redis = Post.redis
-
-  redis.call("RPUSH", post.related.key, Post.create(:body => "C").id)
-  redis.call("RPUSH", post.related.key, Post.create(:body => "B").id)
-  redis.call("RPUSH", post.related.key, Post.create(:body => "A").id)
-
-  res = post.related.sort_by(:body, :order => "ALPHA ASC").map { |r| r.body }
-  assert_equal ["A", "B", "C"], res
-end
-
 # Loading attributes
 setup do
   event = Event.new
@@ -429,14 +382,16 @@ setup do
   event.save.id
 end
 
-test "load attributes as a strings" do
+test "load attributes as native type" do
   event = Event.create(:name => 1)
 
-  assert "1" == Event[event.id].name
+  assert 1 == Event[event.id].name
 end
 
 # Enumerable indices
-class Entry < Ohm::Model
+class Entry < Sohm::Model
+  include Sohm::AutoId
+
   attribute :tags
   index :tag
 
@@ -493,7 +448,7 @@ test "delete elements" do
 end
 
 test "not be available if the model is new" do
-  assert_raise Ohm::MissingID do
+  assert_raise Sohm::MissingID do
     @event.attendees
   end
 end
@@ -543,52 +498,6 @@ test "empty the set" do
   Event.redis.call("DEL", @event.attendees.key)
 
   assert @event.attendees.empty?
-end
-
-test "replace the values in the set" do
-  @event.save
-  @event.attendees.add(@person1)
-
-  assert [@person1] == @event.attendees.to_a
-
-  @event.attendees.replace([@person2, @person3])
-
-  assert [@person2, @person3] == @event.attendees.to_a.sort_by(&:id)
-end
-
-# Sorting lists and sets by model attributes
-setup do
-  @event = Event.create(:name => "Ruby Tuesday")
-  {'D' => 4, 'C' => 2, 'B' => 5, 'A' => 3}.each_pair do |name, logins|
-    person = Person.create(:name => name)
-    person.incr :logins, logins
-    @event.attendees.add(person)
-  end
-end
-
-test "sort the model instances by the values provided" do
-  people = @event.attendees.sort_by(:name, :order => "ALPHA")
-  assert %w[A B C D] == people.map(&:name)
-end
-
-test "accept a number in the limit parameter" do
-  people = @event.attendees.sort_by(:name, :limit => [0, 2], :order => "ALPHA")
-  assert %w[A B] == people.map(&:name)
-end
-
-test "use the start parameter as an offset if the limit is provided" do
-  people = @event.attendees.sort_by(:name, :limit => [1, 2], :order => "ALPHA")
-  assert %w[B C] == people.map(&:name)
-end
-
-test "use counter attributes for sorting" do
-  people = @event.attendees.sort_by(:logins, :limit => [0, 3], :order => "ALPHA")
-  assert %w[C A D] == people.map(&:name)
-end
-
-test "use counter attributes for sorting with key option" do
-  people = @event.attendees.sort_by(:logins, :get => :logins, :limit => [0, 3], :order => "ALPHA")
-  assert %w[2 3 4] == people
 end
 
 # Collections initialized with a Model parameter
@@ -670,7 +579,9 @@ test "be comparable to non-models" do
 end
 
 # Debugging
-class ::Bar < Ohm::Model
+class ::Bar < Sohm::Model
+  include Sohm::AutoId
+
   attribute :name
   counter :visits
   set :friends, self
@@ -690,13 +601,19 @@ class ::Bar < Ohm::Model
 end
 
 # Models connected to different databases
-class ::Car < Ohm::Model
+class ::Car < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :name
 
   self.redis = Redic.new
 end
 
-class ::Make < Ohm::Model
+class ::Make < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :name
 end
 
@@ -710,11 +627,11 @@ test "save to the selected database" do
 
   redis = Redic.new
 
-  assert ["1"] == redis.call("SMEMBERS", "Make:all")
-  assert [] == redis.call("SMEMBERS", "Car:all")
+  assert ["1"] == redis.call("SMEMBERS", "Make:_indices:all:all")
+  assert [] == redis.call("SMEMBERS", "Car:_indices:all:all")
 
-  assert ["1"] == Car.redis.call("SMEMBERS", "Car:all")
-  assert [] == Car.redis.call("SMEMBERS", "Make:all")
+  assert ["1"] == Car.redis.call("SMEMBERS", "Car:_indices:all:all")
+  assert [] == Car.redis.call("SMEMBERS", "Make:_indices:all:all")
 
   assert car == Car[1]
   assert make == Make[1]
@@ -741,10 +658,10 @@ test "persist attributes to a hash" do
   event = Event.create(:name => "Redis Meetup")
   event.incr(:votes)
 
-  assert "hash" == Ohm.redis.call("TYPE", "Event:1")
+  assert "hash" == Sohm.redis.call("TYPE", "Event:1")
 
-  expected= %w[Event:1 Event:1:counters Event:all Event:id]
-  assert_equal expected, Ohm.redis.call("KEYS", "Event:*").sort
+  expected= %w[Event:1 Event:1:_indices Event:1:counters Event:_indices:all:all Event:_id]
+  assert_equal expected.sort, Sohm.redis.call("KEYS", "Event:*").sort
 
   assert "Redis Meetup" == Event[1].name
   assert 1 == Event[1].votes
@@ -756,14 +673,16 @@ test "be persisted" do
 
   SomeNamespace::Bar.create(:foo  => SomeNamespace::Foo[1])
 
-  assert "hash" == Ohm.redis.call("TYPE", "SomeNamespace::Foo:1")
+  assert "hash" == Sohm.redis.call("TYPE", "SomeNamespace::Foo:1")
 
   assert "foo" == SomeNamespace::Foo[1].name
   assert "foo" == SomeNamespace::Bar[1].foo.name
 end if RUBY_VERSION >= "2.0.0"
 
 test "typecast attributes" do
-  class Option < Ohm::Model
+  class Option < Sohm::Model
+    include Sohm::AutoId
+
     attribute :votes, lambda { |x| x.to_i }
   end
 
@@ -775,7 +694,9 @@ end
 
 test "poster-example for overriding writers" do
   silence_warnings do
-    class Advertiser < Ohm::Model
+    class Advertiser < Sohm::Model
+      include Sohm::AutoId
+
       attribute :email
 
       def email=(e)

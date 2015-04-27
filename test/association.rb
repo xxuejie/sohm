@@ -1,10 +1,14 @@
 require_relative "helper"
 
-class User < Ohm::Model
+class User < Sohm::Model
+  include Sohm::AutoId
+
   collection :posts, :Post
 end
 
-class Post < Ohm::Model
+class Post < Sohm::Model
+  include Sohm::AutoId
+
   reference :user, :User
 end
 
@@ -20,14 +24,4 @@ test "basic shake and bake" do |u, p|
 
   p = Post[p.id]
   assert_equal u, p.user
-end
-
-test "memoization" do |u, p|
-  # This will read the user instance once.
-  p.user
-  assert_equal p.user, p.instance_variable_get(:@_memo)[:user]
-
-  # This will un-memoize the user instance
-  p.user = u
-  assert_equal nil, p.instance_variable_get(:@_memo)[:user]
 end

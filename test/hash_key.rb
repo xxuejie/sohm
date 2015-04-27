@@ -1,6 +1,8 @@
 require_relative "helper"
 
-class Tag < Ohm::Model
+class Tag < Sohm::Model
+  include Sohm::AutoId
+
   attribute :name
 end
 

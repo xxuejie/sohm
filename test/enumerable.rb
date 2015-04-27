@@ -1,7 +1,10 @@
 require_relative "helper"
 
 scope do
-  class Contact < Ohm::Model
+  class Contact < Sohm::Model
+    include Sohm::AutoId
+    include Sohm::IndexAll
+
     attribute :name
   end
 
@@ -37,10 +40,13 @@ scope do
 end
 
 scope do
-  class Comment < Ohm::Model
+  class Comment < Sohm::Model
+    include Sohm::AutoId
   end
 
-  class Post < Ohm::Model
+  class Post < Sohm::Model
+    include Sohm::AutoId
+
     list :comments, :Comment
   end
 

@@ -1,9 +1,13 @@
 require_relative 'helper'
 
-class Post < Ohm::Model
+class Post < Sohm::Model
+  include Sohm::AutoId
 end
 
-class User < Ohm::Model
+class User < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :name
 
   index :name

@@ -22,11 +22,11 @@ scope do
   end
 
   test "special condition: single argument returns that arg" do
-    assert_equal "A", Ohm::Command[:sinterstore, "A"]
+    assert_equal "A", Sohm::Command[:sinterstore, "A"]
   end
 
   test "full stack test"  do |redis, nido|
-    cmd1 = Ohm::Command[:sinterstore, "A", "B"]
+    cmd1 = Sohm::Command[:sinterstore, "A", "B"]
 
     res = cmd1.call(nido, redis)
     assert_equal ["1"], redis.call("SMEMBERS", res)
@@ -34,8 +34,8 @@ scope do
     cmd1.clean
     assert_equal 0, redis.call("EXISTS", res)
 
-    cmd2 = Ohm::Command[:sinterstore, "C", "D", "E"]
-    cmd3 = Ohm::Command[:sunionstore, cmd1, cmd2]
+    cmd2 = Sohm::Command[:sinterstore, "C", "D", "E"]
+    cmd3 = Sohm::Command[:sunionstore, cmd1, cmd2]
 
     res = cmd3.call(nido, redis)
     assert_equal ["1", "12"], redis.call("SMEMBERS", res)
@@ -43,8 +43,8 @@ scope do
     cmd3.clean
     assert redis.call("KEYS", nido["*"]).empty?
 
-    cmd4 = Ohm::Command[:sinterstore, "F", "G", "H"]
-    cmd5 = Ohm::Command[:sdiffstore, cmd3, cmd4]
+    cmd4 = Sohm::Command[:sinterstore, "F", "G", "H"]
+    cmd5 = Sohm::Command[:sdiffstore, cmd3, cmd4]
 
     res = cmd5.call(nido, redis)
     assert_equal ["1"], redis.call("SMEMBERS", res)

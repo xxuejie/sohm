@@ -1,6 +1,9 @@
 require_relative "helper"
 
-class User < Ohm::Model
+class User < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :fname
   attribute :lname
   attribute :status
@@ -33,16 +36,6 @@ test "sets aren't mutable" do |john, jane|
   assert_raise NoMethodError do
     User.find(:lname => "Doe", :fname => "John").add(john)
   end
-end
-
-test "#first" do |john, jane|
-  set = User.find(:lname => "Doe", :status => "active")
-
-  assert_equal jane, set.first(:by => "fname", :order => "ALPHA")
-  assert_equal john, set.first(:by => "fname", :order => "ALPHA DESC")
-
-  assert_equal "Jane", set.first(:by => "fname", :order => "ALPHA", :get => "fname")
-  assert_equal "John", set.first(:by => "fname", :order => "ALPHA DESC", :get => "fname")
 end
 
 test "#[]" do |john, jane|
@@ -121,11 +114,15 @@ end
 
 # book author thing via @myobie
 scope do
-  class Book < Ohm::Model
+  class Book < Sohm::Model
+    include Sohm::AutoId
+
     collection :authors, :Author
   end
 
-  class Author < Ohm::Model
+  class Author < Sohm::Model
+    include Sohm::AutoId
+
     reference :book, :Book
 
     attribute :mood

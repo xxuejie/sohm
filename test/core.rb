@@ -1,6 +1,9 @@
+# coding: utf-8
 require_relative "helper"
 
-class Event < Ohm::Model
+class Event < Sohm::Model
+  include Sohm::AutoId
+
   attribute :name
   attribute :location
 end

@@ -2,7 +2,8 @@ require_relative "helper"
 
 $VERBOSE = false
 
-class Ad < Ohm::Model
+class Ad < Sohm::Model
+  include Sohm::AutoId
 end
 
 test "counters aren't overwritten by competing saves" do

@@ -691,8 +691,12 @@ module Sohm
       defined?(@redis) ? @redis : Sohm.redis
     end
 
+    def self.mutex
+      Sohm.mutex
+    end
+
     def self.synchronize(&block)
-      Sohm.mutex.synchronize(&block)
+      mutex.synchronize(&block)
     end
 
     # Returns the namespace for all the keys generated using this model.
@@ -910,16 +914,14 @@ module Sohm
     #     index :user_id
     #
     #     def user
-    #       @_memo[:user] ||= User[user_id]
+    #       User[user_id]
     #     end
     #
     #     def user=(user)
     #       self.user_id = user.id
-    #       @_memo[:user] = user
     #     end
     #
     #     def user_id=(user_id)
-    #       @_memo.delete(:user_id)
     #       self.user_id = user_id
     #     end
     #   end
@@ -1092,7 +1094,6 @@ module Sohm
     def initialize(atts = {})
       @attributes = {}
       @serial_attributes = {}
-      @_memo = {}
       @serial_attributes_changed = false
       update_attributes(atts)
     end
@@ -1138,42 +1139,6 @@ module Sohm
       return self
     end
 
-    # Read an attribute remotely from Redis. Useful if you want to get
-    # the most recent value of the attribute and not rely on locally
-    # cached value.
-    #
-    # Example:
-    #
-    #   User.create(:name => "A")
-    #
-    #   Session 1     |    Session 2
-    #   --------------|------------------------
-    #   u = User[1]   |    u = User[1]
-    #   u.name = "B"  |
-    #   u.save        |
-    #                 |    u.name == "A"
-    #                 |    u.get(:name) == "B"
-    #
-    def get(att)
-      @attributes[att] = redis.call("HGET", key, att)
-    end
-
-    # Update an attribute value atomically. The best usecase for this
-    # is when you simply want to update one value.
-    #
-    # Note: This method is dangerous because it doesn't update indices
-    # and uniques. Use it wisely. The safe equivalent is `update`.
-    #
-    def set(att, val)
-      if val.to_s.empty?
-        redis.call("HDEL", key, att)
-      else
-        redis.call("HSET", key, att, val)
-      end
-
-      @attributes[att] = val
-    end
-
     # Returns +true+ if the model is not persisted. Otherwise, returns +false+.
     #
     # Example:
@@ -1190,7 +1155,7 @@ module Sohm
     #   u.new?
     #   # => false
     def new?
-      !model.exists?(id)
+      !(defined?(@id) && model.exists?(id))
     end
 
     # Increment a counter atomically. Internally uses HINCRBY.
@@ -1327,10 +1292,13 @@ module Sohm
     #
     def delete
       memo_key = key["_indices"]
-      commands = [["DEL", key], ["DEL", memo_key]]
+      commands = [["DEL", key], ["DEL", memo_key], ["DEL", key["counters"]]]
       index_list = redis.call("SMEMBERS", memo_key)
       index_list.each do |index_key|
         commands << ["SREM", index_key, id]
+      end
+      model.tracked.each do |tracked_key|
+        commands << ["DEL", key[tracked_key]]
       end
 
       model.synchronize do

@@ -1,6 +1,8 @@
 require_relative "helper"
 
-class User < Ohm::Model
+class User < Sohm::Model
+  include Sohm::AutoId
+
   attribute :email
   attribute :update
   attribute :activation_code
@@ -35,7 +37,7 @@ test "be able to find by the given attribute" do
 end
 
 test "raise if the index doesn't exist" do
-  assert_raise Ohm::IndexNotFound do
+  assert_raise Sohm::IndexNotFound do
     User.find(:address => "foo")
   end
 end
@@ -51,13 +53,13 @@ test "raise an error if the parameter supplied is not a hash" do
 end
 
 test "avoid intersections with the all collection" do
-  assert_equal "User:indices:email:foo", User.find(:email => "foo").key
+  assert_equal "User:_indices:email:foo", User.find(:email => "foo").key
 end
 
 test "cleanup the temporary key after use" do
   assert User.find(:email => "foo", :activation_code => "bar").to_a
 
-  assert Ohm.redis.call("KEYS", "User:temp:*").empty?
+  assert Sohm.redis.call("KEYS", "User:temp:*").empty?
 end
 
 test "allow multiple chained finds" do
@@ -98,36 +100,4 @@ test "allow indexing by an arbitrary attribute" do
   gmail = User.find(:email_provider => "gmail.com").to_a
   assert [@user1, @user2] == gmail.sort_by { |u| u.id }
   assert [@user3] == User.find(:email_provider => "yahoo.com").to_a
-end
-
-scope do
-  # Just to give more context around this bug, basically it happens
-  # when you define a virtual unique or index.
-  #
-  # Previously it was unable to cleanup the indices mainly because
-  # it relied on the attributes being set.
-  class Node < Ohm::Model
-    index :available
-    attribute :capacity
-
-    unique :available
-
-    def available
-      capacity.to_i <= 90
-    end
-  end
-
-  test "index bug" do
-    n = Node.create
-    n.update(capacity: 91)
-
-    assert_equal 0, Node.find(available: true).size
-  end
-
-  test "uniques bug" do
-    n = Node.create
-    n.update(capacity: 91)
-
-    assert_equal nil, Node.with(:available, true)
-  end
 end

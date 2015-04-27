@@ -1,12 +1,17 @@
 require_relative 'helper'
-require_relative "../lib/ohm/json"
+require_relative "../lib/sohm/json"
 
-class Venue < Ohm::Model
+class Venue < Sohm::Model
+  include Sohm::AutoId
+
   attribute :name
   list :programmers, :Programmer
 end
 
-class Programmer < Ohm::Model
+class Programmer < Sohm::Model
+  include Sohm::AutoId
+  include Sohm::IndexAll
+
   attribute :language
 
   index :language

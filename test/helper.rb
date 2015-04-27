@@ -14,10 +14,12 @@ end unless defined?(silence_warnings)
 
 $VERBOSE = true
 
-require_relative "../lib/ohm"
+require_relative "../lib/sohm"
+require_relative "../lib/sohm/auto_id"
+require_relative "../lib/sohm/index_all"
 
-Ohm.redis = Redic.new("redis://127.0.0.1:6379")
+Sohm.redis = Redic.new("redis://127.0.0.1:6379")
 
 prepare do
-  Ohm.redis.call("FLUSHALL")
+  Sohm.redis.call("FLUSHALL")
 end

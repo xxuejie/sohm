@@ -1,10 +1,13 @@
 require_relative "helper"
 
-class Post < Ohm::Model
+class Post < Sohm::Model
+  include Sohm::AutoId
+
   list :comments, :Comment
 end
 
-class Comment < Ohm::Model
+class Comment < Sohm::Model
+  include Sohm::AutoId
 end
 
 setup do
@@ -28,14 +31,6 @@ test "first / last / size / empty?" do |p, c1, c2, c3|
   assert_equal c1, p.comments.first
   assert_equal c3, p.comments.last
   assert ! p.comments.empty?
-end
-
-test "replace" do |p, c1, c2, c3|
-  c4 = Comment.create
-
-  p.comments.replace([c4])
-
-  assert_equal [c4], p.comments.to_a
 end
 
 test "push / unshift" do |p, c1, c2, c3|
@@ -65,7 +60,7 @@ end
 test "deleting main model cleans up the collection" do |p, _, _, _|
   p.delete
 
-  assert_equal 0, Ohm.redis.call("EXISTS", p.key[:comments])
+  assert_equal 0, Sohm.redis.call("EXISTS", p.key[:comments])
 end
 
 test "#ids returns an array with the ids" do |post, *comments|

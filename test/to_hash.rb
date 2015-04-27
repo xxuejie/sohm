@@ -1,6 +1,7 @@
 require_relative 'helper'
 
-class User < Ohm::Model
+class User < Sohm::Model
+  include Sohm::AutoId
 end
 
 test "returns an empty hash if model doesn't have set attributes" do
@@ -13,7 +14,9 @@ test "returns a hash with its id if model is persisted" do
   assert_equal Hash[id: user.id], user.to_hash
 end
 
-class Person < Ohm::Model
+class Person < Sohm::Model
+  include Sohm::AutoId
+
   attribute :name
 
   def to_hash
