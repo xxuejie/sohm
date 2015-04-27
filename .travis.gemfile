@@ -2,8 +2,8 @@
 
 source 'http://rubygems.org'
 
-gem 'redic', '~1.4.1'
-gem 'nido', '~0.0.1'
-gem 'msgpack', '~0.5.11'
+gem 'redic', '~> 1.4.1'
+gem 'nido', '~> 0.0.1'
+gem 'msgpack', '~> 0.5.11'
 
-gem 'cutest', '~1.2.2'
+gem 'cutest', '~> 1.2.2'
