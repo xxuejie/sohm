@@ -1,6 +1,8 @@
 Sohm
 ====
 
+[![Build Status](https://travis-ci.org/xxuejie/sohm.svg?branch=master)](https://travis-ci.org/xxuejie/sohm)
+
 This forks [ohm](https://github.com/soveran/ohm) so as to work with [twemproxy](https://github.com/twitter/twemproxy) or similar systems.
 
 `Sohm` means `Slim ohm`.
