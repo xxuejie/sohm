@@ -327,8 +327,20 @@ module Sohm
       execute { |key| redis.call("SCARD", key) }
     end
 
-    def first
-      fetch([ids.first]).first
+    # SMEMBERS then choosing the first will take too much memory in case data
+    # grow big enough, which will be slow in this case.
+    # Providing +sample+ only gives a hint that we won't preserve any order
+    # for this, there will be 2 cases:
+    #
+    # 1. Anyone in the set will do, this is the original use case of +sample*
+    # 2. For some reasons(maybe due to filters), we only have 1 element left
+    # in this set, using +sample+ will do the trick
+    #
+    # For all the other cases, we won't be able to fetch a single element
+    # without fetching all elements first(in other words, doing this
+    # efficiently)
+    def sample
+      model[execute { |key| redis.call("SRANDMEMBER", key) }]
     end
 
     # Returns an array with all the ID's of the set.
