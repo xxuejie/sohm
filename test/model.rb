@@ -660,7 +660,7 @@ test "persist attributes to a hash" do
 
   assert "hash" == Sohm.redis.call("TYPE", "Event:1")
 
-  expected= %w[Event:1 Event:1:_indices Event:1:counters Event:_indices:all:all Event:_id]
+  expected= %w[Event:1 Event:1:_indices Event:_indices:all:all Event:1:_counters Event:_id]
   assert_equal expected.sort, Sohm.redis.call("KEYS", "Event:*").sort
 
   assert "Redis Meetup" == Event[1].name

@@ -675,7 +675,7 @@ module Sohm
   #
   # Next we increment points:
   #
-  #   HINCR User:1:counters points 1
+  #   HINCR User:1:_counters points 1
   #
   # And then we add a Post to the `posts` set.
   # (For brevity, let's assume the Post created has an ID of 1).
@@ -1064,7 +1064,7 @@ module Sohm
       define_method(name) do
         return 0 if new?
 
-        redis.call("HGET", key[:counters], name).to_i
+        redis.call("HGET", key[:_counters], name).to_i
       end
     end
 
@@ -1160,7 +1160,7 @@ module Sohm
 
     # Increment a counter atomically. Internally uses HINCRBY.
     def incr(att, count = 1)
-      redis.call("HINCRBY", key[:counters], att, count)
+      redis.call("HINCRBY", key[:_counters], att, count)
     end
 
     # Decrement a counter atomically. Internally uses HINCRBY.
@@ -1285,14 +1285,14 @@ module Sohm
     # Delete the model, including all the following keys:
     #
     # - <Model>:<id>
-    # - <Model>:<id>:counters
+    # - <Model>:<id>:_counters
     # - <Model>:<id>:<set name>
     #
     # If the model has uniques or indices, they're also cleaned up.
     #
     def delete
       memo_key = key["_indices"]
-      commands = [["DEL", key], ["DEL", memo_key], ["DEL", key["counters"]]]
+      commands = [["DEL", key], ["DEL", memo_key], ["DEL", key["_counters"]]]
       index_list = redis.call("SMEMBERS", memo_key)
       index_list.each do |index_key|
         commands << ["SREM", index_key, id]
