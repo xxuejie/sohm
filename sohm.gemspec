@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = "sohm"
-  s.version = "0.0.1"
+  s.version = "0.9.0"
   s.summary = %{Slim ohm for twemproxy-like system}
   s.description = %Q{Slim ohm is a forked ohm that works with twemproxy-like redis system, only a limited set of features in ohm is supported}
   s.authors = ["Xuejie Xiao"]
