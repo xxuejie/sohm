@@ -1207,6 +1207,18 @@ module Sohm
       @serial_attributes
     end
 
+    def counters
+      hash = {}
+      self.class.counters.each do |name|
+        hash[name] = 0
+      end
+      return hash if new?
+      redis.call("HGETALL", key[:_counters]).each_slice(2).each do |pair|
+        hash[pair[0].to_sym] = pair[1].to_i
+      end
+      hash
+    end
+
     # Export the ID of the model. The approach of Ohm is to
     # whitelist public attributes, as opposed to exporting each
     # (possibly sensitive) attribute.
