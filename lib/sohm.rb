@@ -794,11 +794,8 @@ module Sohm
     def self.find(dict)
       keys = filters(dict)
 
-      if keys.size == 1
-        Sohm::Set.new(keys.first, key, self)
-      else
-        Sohm::MultiSet.new(key, self, Command.new(:sinterstore, *keys))
-      end
+      raise "Not supported for now!" unless keys.size == 1
+      Sohm::Set.new(keys.first, key, self)
     end
 
     # Retrieve a set of models given an array of IDs.
