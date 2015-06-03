@@ -613,23 +613,24 @@ module Sohm
     end
 
     def execute
-      # namespace[:tmp] is where all the temp keys should be stored in.
-      # redis will be where all the commands are executed against.
-      response = command.call(namespace[:tmp], redis)
+      raise "SDIFFSTORE, SINTERSTORE and SUNIONSTORE can not be used directly!"
+      # # namespace[:tmp] is where all the temp keys should be stored in.
+      # # redis will be where all the commands are executed against.
+      # response = command.call(namespace[:tmp], redis)
 
-      begin
+      # begin
 
-        # At this point, we have the final aggregated set, which we yield
-        # to the caller. the caller can do all the normal set operations,
-        # i.e. SCARD, SMEMBERS, etc.
-        yield response
+      #   # At this point, we have the final aggregated set, which we yield
+      #   # to the caller. the caller can do all the normal set operations,
+      #   # i.e. SCARD, SMEMBERS, etc.
+      #   yield response
 
-      ensure
+      # ensure
 
-        # We have to make sure we clean up the temporary keys to avoid
-        # memory leaks and the unintended explosion of memory usage.
-        command.clean
-      end
+      #   # We have to make sure we clean up the temporary keys to avoid
+      #   # memory leaks and the unintended explosion of memory usage.
+      #   command.clean
+      # end
     end
   end
 
@@ -794,8 +795,11 @@ module Sohm
     def self.find(dict)
       keys = filters(dict)
 
-      raise "Not supported for now!" unless keys.size == 1
-      Sohm::Set.new(keys.first, key, self)
+      if keys.size == 1
+        Sohm::Set.new(keys.first, key, self)
+      else
+        Sohm::MultiSet.new(key, self, Command.new(:sinterstore, *keys))
+      end
     end
 
     # Retrieve a set of models given an array of IDs.
