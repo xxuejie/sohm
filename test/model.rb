@@ -410,12 +410,6 @@ test "finding by one entry in the enumerable" do |entry|
   assert Entry.find(:tag => "baz").include?(entry)
 end
 
-# test "finding by multiple entries in the enumerable" do |entry|
-#   assert Entry.find(:tag => ["foo", "bar"]).include?(entry)
-#   assert Entry.find(:tag => ["bar", "baz"]).include?(entry)
-#   assert Entry.find(:tag => ["baz", "oof"]).empty?
-# end
-
 # Attributes of type Set
 setup do
   @person1 = Person.create(:name => "Albert")
@@ -425,16 +419,6 @@ setup do
   @event = Event.new
   @event.name = "Ruby Tuesday"
 end
-
-# test "filter elements" do
-#   @event.save
-#   @event.attendees.add(@person1)
-#   @event.attendees.add(@person2)
-
-#   assert [@person1] == @event.attendees.find(:initial => "A").to_a
-#   assert [@person2] == @event.attendees.find(:initial => "B").to_a
-#   assert [] == @event.attendees.find(:initial => "Z").to_a
-# end
 
 test "delete elements" do
   @event.save

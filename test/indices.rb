@@ -56,16 +56,6 @@ test "avoid intersections with the all collection" do
   assert_equal "User:_indices:email:foo", User.find(:email => "foo").key
 end
 
-# test "cleanup the temporary key after use" do
-#   assert User.find(:email => "foo", :activation_code => "bar").to_a
-
-#   assert Sohm.redis.call("KEYS", "User:temp:*").empty?
-# end
-
-# test "allow multiple chained finds" do
-#   assert 1 == User.find(:email => "foo").find(:activation_code => "bar").find(:update => "baz").size
-# end
-
 test "return nil if no results are found" do
   assert User.find(:email => "foobar").empty?
   assert nil == User.find(:email => "foobar").first

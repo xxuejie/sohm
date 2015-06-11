@@ -45,16 +45,6 @@ test "exports a set to json" do
   assert_equal expected, Programmer.all.to_json
 end
 
-# test "exports a multiset to json" do
-#   Programmer.create(language: "Ruby")
-#   Programmer.create(language: "Python")
-
-#   expected = [{ id: "1", language: "Ruby" }, { id: "2", language: "Python"}].to_json
-#   result   = Programmer.find(language: "Ruby").union(language: "Python").to_json
-
-#   assert_equal expected, result
-# end
-
 test "exports a list to json" do
   venue = Venue.create(name: "Foo")
 

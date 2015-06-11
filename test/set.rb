@@ -26,16 +26,3 @@ test '#exists? returns true if the given id is included in the set' do
 
   assert user.posts.exists?(post.id)
 end
-
-# test "#ids returns an array with the ids" do
-#   user_ids = [
-#     User.create(name: "John").id,
-#     User.create(name: "Jane").id
-#   ]
-
-#   assert_equal user_ids, User.all.ids
-
-#   result = User.find(name: "John").union(name: "Jane")
-
-#   assert_equal user_ids, result.ids
-# end

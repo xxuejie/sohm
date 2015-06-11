@@ -40,6 +40,7 @@ module Sohm
   class MissingID < Error; end
   class IndexNotFound < Error; end
   class CasViolation < Error; end
+  class NotSupported < Error; end
 
   # Instead of monkey patching Kernel or trying to be clever, it's
   # best to confine all the helper methods in a Utils module.
@@ -416,61 +417,6 @@ module Sohm
       @model = model
     end
 
-    # Chain new fiters on an existing set.
-    #
-    # Example:
-    #
-    #   set = User.find(:name => "John")
-    #   set.find(:age => 30)
-    #
-    def find(dict)
-      MultiSet.new(
-        namespace, model, Command[:sinterstore, key, *model.filters(dict)]
-      )
-    end
-
-    # Reduce the set using any number of filters.
-    #
-    # Example:
-    #
-    #   set = User.find(:name => "John")
-    #   set.except(:country => "US")
-    #
-    #   # You can also do it in one line.
-    #   User.find(:name => "John").except(:country => "US")
-    #
-    def except(dict)
-      MultiSet.new(namespace, model, key).except(dict)
-    end
-
-    # Perform an intersection between the existent set and
-    # the new set created by the union of the passed filters.
-    #
-    # Example:
-    #
-    #   set = User.find(:status => "active")
-    #   set.combine(:name => ["John", "Jane"])
-    #   
-    #   # The result will include all users with active status
-    #   # and with names "John" or "Jane".
-    def combine(dict)
-      MultiSet.new(namespace, model, key).combine(dict)
-    end
-
-    # Do a union to the existing set using any number of filters.
-    #
-    # Example:
-    #
-    #   set = User.find(:name => "John")
-    #   set.union(:name => "Jane")
-    #
-    #   # You can also do it in one line.
-    #   User.find(:name => "John").union(:name => "Jane")
-    #
-    def union(dict)
-      MultiSet.new(namespace, model, key).union(dict)
-    end
-
   private
     def execute
       yield key
@@ -511,129 +457,6 @@ module Sohm
     end
   end
 
-  # Anytime you filter a set with more than one requirement, you
-  # internally use a `MultiSet`. `MultiSet` is a bit slower than just
-  # a `Set` because it has to `SINTERSTORE` all the keys prior to
-  # retrieving the members, size, etc.
-  #
-  # Example:
-  #
-  #   User.all.kind_of?(Sohm::Set)
-  #   # => true
-  #
-  #   User.find(:name => "John").kind_of?(Sohm::Set)
-  #   # => true
-  #
-  #   User.find(:name => "John", :age => 30).kind_of?(Sohm::MultiSet)
-  #   # => true
-  #
-  class MultiSet < BasicSet
-    attr :namespace
-    attr :model
-    attr :command
-
-    def initialize(namespace, model, command)
-      @namespace = namespace
-      @model = model
-      @command = command
-    end
-
-    # Chain new fiters on an existing set.
-    #
-    # Example:
-    #
-    #   set = User.find(:name => "John", :age => 30)
-    #   set.find(:status => 'pending')
-    #
-    def find(dict)
-      MultiSet.new(
-        namespace, model, Command[:sinterstore, command, intersected(dict)]
-      )
-    end
-
-    # Reduce the set using any number of filters.
-    #
-    # Example:
-    #
-    #   set = User.find(:name => "John")
-    #   set.except(:country => "US")
-    #
-    #   # You can also do it in one line.
-    #   User.find(:name => "John").except(:country => "US")
-    #
-    def except(dict)
-      MultiSet.new(
-        namespace, model, Command[:sdiffstore, command, unioned(dict)]
-      )
-    end
-
-    # Perform an intersection between the existent set and
-    # the new set created by the union of the passed filters.
-    #
-    # Example:
-    #
-    #   set = User.find(:status => "active")
-    #   set.combine(:name => ["John", "Jane"])
-    #   
-    #   # The result will include all users with active status
-    #   # and with names "John" or "Jane".
-    def combine(dict)
-      MultiSet.new(
-        namespace, model, Command[:sinterstore, command, unioned(dict)]
-      )
-    end
-
-    # Do a union to the existing set using any number of filters.
-    #
-    # Example:
-    #
-    #   set = User.find(:name => "John")
-    #   set.union(:name => "Jane")
-    #
-    #   # You can also do it in one line.
-    #   User.find(:name => "John").union(:name => "Jane")
-    #
-    def union(dict)
-      MultiSet.new(
-        namespace, model, Command[:sunionstore, command, intersected(dict)]
-      )
-    end
-
-  private
-    def redis
-      model.redis
-    end
-
-    def intersected(dict)
-      Command[:sinterstore, *model.filters(dict)]
-    end
-
-    def unioned(dict)
-      Command[:sunionstore, *model.filters(dict)]
-    end
-
-    def execute
-      raise "SDIFFSTORE, SINTERSTORE and SUNIONSTORE can not be used directly!"
-      # # namespace[:tmp] is where all the temp keys should be stored in.
-      # # redis will be where all the commands are executed against.
-      # response = command.call(namespace[:tmp], redis)
-
-      # begin
-
-      #   # At this point, we have the final aggregated set, which we yield
-      #   # to the caller. the caller can do all the normal set operations,
-      #   # i.e. SCARD, SMEMBERS, etc.
-      #   yield response
-
-      # ensure
-
-      #   # We have to make sure we clean up the temporary keys to avoid
-      #   # memory leaks and the unintended explosion of memory usage.
-      #   command.clean
-      # end
-    end
-  end
-
   # The base class for all your models. In order to better understand
   # it, here is a semi-realtime explanation of the details involved
   # when creating a User instance.
@@ -655,33 +478,6 @@ module Sohm
   #   u = User.create(:name => "John", :email => "foo@bar.com")
   #   u.incr :points
   #   u.posts.add(Post.create)
-  #
-  # When you execute `User.create(...)`, you run the following Redis
-  # commands:
-  #
-  #   # Generate an ID
-  #   INCR User:id
-  #
-  #   # Add the newly generated ID, (let's assume the ID is 1).
-  #   SADD User:all 1
-  #
-  #   # Store the unique index
-  #   HSET User:uniques:email foo@bar.com 1
-  #
-  #   # Store the name index
-  #   SADD User:indices:name:John 1
-  #
-  #   # Store the HASH
-  #   HMSET User:1 name John email foo@bar.com
-  #
-  # Next we increment points:
-  #
-  #   HINCR User:1:_counters points 1
-  #
-  # And then we add a Post to the `posts` set.
-  # (For brevity, let's assume the Post created has an ID of 1).
-  #
-  #   SADD User:1:posts 1
   #
   class Model
     def self.redis=(redis)
@@ -789,16 +585,16 @@ module Sohm
     #   User.find(:tag => "python").include?(u)
     #   # => true
     #
-    #   User.find(:tag => ["ruby", "python"]).include?(u)
-    #   # => true
-    #
+    # Due to restrictions in Codis, we only support single-index query.
+    # If you want to query based on multiple fields, you can make an
+    # index based on all the fields.
     def self.find(dict)
       keys = filters(dict)
 
       if keys.size == 1
         Sohm::Set.new(keys.first, key, self)
       else
-        Sohm::MultiSet.new(key, self, Command.new(:sinterstore, *keys))
+        raise NotSupported
       end
     end
 
@@ -1102,17 +898,9 @@ module Sohm
     # Access the ID used to store this model. The ID is used together
     # with the name of the class in order to form the Redis key.
     #
-    # Example:
-    #
-    #   class User < Sohm::Model; end
-    #
-    #   u = User.create
-    #   u.id
-    #   # => 1
-    #
-    #   u.key
-    #   # => User:1
-    #
+    # Different from ohm, id must be provided by the user in sohm,
+    # if you want to use auto-generated id, you can include Sohm::AutoId
+    # module.
     def id
       raise MissingID if not defined?(@id)
       @id
