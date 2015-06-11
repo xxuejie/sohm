@@ -6,7 +6,6 @@ require "nido"
 require "redic"
 require "securerandom"
 require "set"
-require_relative "sohm/command"
 
 module Sohm
   LUA_SAVE = File.read(File.expand_path("../sohm/lua/save.lua",   __FILE__))
