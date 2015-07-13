@@ -500,6 +500,16 @@ module Sohm
       defined?(@redis) ? @redis : Sohm.redis
     end
 
+    def self.refresh_indices_inline=(refresh_indices_inline)
+      @refresh_indices_inline = refresh_indices_inline
+    end
+
+    def self.refresh_indices_inline
+      defined?(@refresh_indices_inline) ?
+        @refresh_indices_inline :
+        Sohm.refresh_indices_inline
+    end
+
     def self.mutex
       Sohm.mutex
     end
@@ -1091,7 +1101,7 @@ module Sohm
                    sanitize_attributes(attributes).to_msgpack)
       end
 
-      if Sohm.refresh_indices_inline
+      if model.refresh_indices_inline
         refresh_indices
       end
 
