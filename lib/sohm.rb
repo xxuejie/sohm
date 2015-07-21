@@ -68,7 +68,10 @@ module Sohm
     def self.const(context, name)
       case name
       when Symbol, String
-        context.const_get(name)
+        # In JRuby, Module::const_get can not work on nested symbols
+        # such as "Foo::Bar", so we have to do it piece by piece here
+        pieces = name.to_s.split("::")
+        pieces.reduce(context) { |context, piece| context.const_get(piece) }
       else name
       end
     end
