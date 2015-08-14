@@ -171,7 +171,7 @@ module Sohm
 
       [].tap do |result|
         data.each_with_index do |atts, idx|
-          unless atts.empty?
+          if atts.is_a?(Array) && atts.size > 0
             result << model.new(Utils.dict(atts).update(:id => ids[idx]))
           end
         end
